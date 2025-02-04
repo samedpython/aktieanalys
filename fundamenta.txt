@@ -1,0 +1,12 @@
+Ericsson
+36
+negativt
+0.23
+Electrolux
+40
+10
+0.40
+AstraZeneca
+50
+12
+0.55
