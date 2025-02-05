@@ -41,9 +41,12 @@ def läs_kurser():
                 data[aktie] = []
             else:
                 try:
-                    data[aktie].append(float(line.split()[1]))
-                except:
-                    continue
+                    delar = line.split()
+                    if len(delar) == 2:
+                        kurs = float(delar[1])
+                        data[aktie].append(kurs)
+                except ValueError:
+                    print(f"Fel vid inläsning av kurs: {line}")
     return data
 
 # Hämtar OMX-index från fil
@@ -55,12 +58,14 @@ def läs_omx():
     with open(OMX_FILE, "r", encoding="utf-8") as f:
         for line in f:
             try:
-                data.append(float(line.split()[1]))
-            except:
-                continue
+                delar = line.split()
+                if len(delar) == 2:
+                    data.append(float(delar[1]))
+            except ValueError:
+                print(f"Fel vid inläsning av OMX-data: {line}")
     return data
 
-# Webbscraping: Hämta aktiekurser från Yahoo Finance
+# Hämta aktiekurser från Yahoo Finance
 def hämta_aktiekurs(aktie):
     aktie_tickers = {
         "Ericsson": "ERIC",
@@ -72,29 +77,26 @@ def hämta_aktiekurs(aktie):
         return None
     try:
         aktie_data = yf.Ticker(ticker)
-        kurs = aktie_data.history(period="1d")["Close"].iloc[-1]
+        history = aktie_data.history(period="60d")  # Hämtar 60 dagars data
+        if history.empty:
+            return None
+        kurs = history["Close"].iloc[-1]
         return round(kurs, 2)
-    except:
+    except Exception as e:
+        print(f"Fel vid hämtning av aktiekurs: {e}")
         return None
-
-# Fundamental analys
-def fundamental_analys():
-    aktie = aktie_var.get()
-    data = läs_fundamenta()
-    if aktie in data:
-        result = f"Soliditet: {data[aktie]['soliditet']}%\nP/E-tal: {data[aktie]['pe']}\nP/S-tal: {data[aktie]['ps']}"
-    else:
-        result = "Ingen data hittades."
-    messagebox.showinfo(f"Fundamental analys - {aktie}", result)
 
 # Teknisk analys
 def teknisk_analys():
     aktie = aktie_var.get()
+    if not aktie:
+        messagebox.showerror("Fel", "Du måste välja en aktie!")
+        return
     kurser = läs_kurser()
     omx = läs_omx()
     
-    if aktie not in kurser or len(kurser[aktie]) < 2 or len(omx) < 2:
-        messagebox.showerror("Fel", "Ej tillräckligt med data.")
+    if aktie not in kurser or len(kurser[aktie]) < 5 or len(omx) < 5:
+        messagebox.showerror("Fel", "Ej tillräckligt med data (behöver minst 5 dagar).")
         return
 
     start = kurser[aktie][0]
@@ -105,11 +107,23 @@ def teknisk_analys():
     slut_omx = omx[-1]
     avkastning_omx = (slut_omx / start_omx) - 1
 
-    betavärde = avkastning / avkastning_omx if avkastning_omx != 0 else 0
+    if abs(avkastning_omx) < 0.01:
+        betavärde = None
+    else:
+        betavärde = avkastning / avkastning_omx
+
+    # Debugging print
+    print(f"{aktie}: Startkurs = {start}, Slutkurs = {slut}, OMX Start = {start_omx}, OMX Slut = {slut_omx}, Betavärde = {betavärde}")
+
+    if betavärde is not None:
+        betavärde = round(betavärde, 2)
+    else:
+        betavärde = "Ej tillgängligt"
+
     högsta = max(kurser[aktie])
     lägsta = min(kurser[aktie])
 
-    result = f"Kursutveckling: {round(avkastning * 100, 2)}%\nBetavärde: {round(betavärde, 2)}\nHögsta kurs: {högsta}\nLägsta kurs: {lägsta}"
+    result = f"Kursutveckling: {round(avkastning * 100, 2)}%\nBetavärde: {betavärde}\nHögsta kurs: {högsta}\nLägsta kurs: {lägsta}"
     messagebox.showinfo(f"Teknisk analys - {aktie}", result)
 
 # Rangordna aktier efter betavärde
@@ -119,14 +133,23 @@ def rangordna_aktier():
     betavärden = {}
 
     for aktie, kurs in kurser.items():
-        if len(kurs) < 2 or len(omx) < 2:
+        if len(kurs) < 5 or len(omx) < 5:
             continue
         start = kurs[0]
         slut = hämta_aktiekurs(aktie) or kurs[-1]
         avkastning = (slut / start) - 1
         avkastning_omx = (omx[-1] / omx[0]) - 1
-        betavärde = avkastning / avkastning_omx if avkastning_omx != 0 else 0
-        betavärden[aktie] = round(betavärde, 2)
+
+        if abs(avkastning_omx) < 0.01:
+            betavärde = None
+        else:
+            betavärde = avkastning / avkastning_omx
+
+        # Debugging print
+        print(f"{aktie}: Startkurs = {start}, Slutkurs = {slut}, Betavärde = {betavärde}")
+
+        if betavärde is not None:
+            betavärden[aktie] = round(betavärde, 2)
 
     sorted_aktier = sorted(betavärden.items(), key=lambda x: x[1], reverse=True)
     result = "\n".join([f"{i+1}. {aktie} - {beta}" for i, (aktie, beta) in enumerate(sorted_aktier)])
@@ -144,13 +167,11 @@ def skapa_gui():
     aktie_dropdown = ttk.Combobox(root, textvariable=aktie_var, values=AKTIER, state="readonly")
     aktie_dropdown.pack(pady=5)
 
-    tk.Button(root, text="Fundamental analys", command=fundamental_analys).pack(pady=5)
     tk.Button(root, text="Teknisk analys", command=teknisk_analys).pack(pady=5)
     tk.Button(root, text="Rangordna aktier", command=rangordna_aktier).pack(pady=5)
     tk.Button(root, text="Avsluta", command=root.quit).pack(pady=10)
 
     root.mainloop()
 
-# Starta GUI
 if __name__ == "__main__":
     skapa_gui()
